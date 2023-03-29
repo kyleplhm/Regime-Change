@@ -22,21 +22,21 @@ library(plotly)
 
 # Introduction
 
-This analysis is my contribution to a larger Cal Poly MSBA captstone project in support of a large North American Utilities company. Our group was tasked with detecting significant changes in constraint flow beyond normal seasonality also known as **regime changes.** This model leverages an R package that uses Bayesian probabilities to detect changes in time-series data in real-time( a.k.a "online"). These changes will also allow the data to be binned within the appropriate regime.
+This analysis is my contribution to a larger Cal Poly MSBA captstone project in support of a large North American Utilities company. Our group was tasked with detecting significant changes in constraint flow beyond normal seasonality also known as **regime changes.** This model leverages an R package that uses Bayesian probabilities to detect changes in time-series data in real-time( a.k.a "online").
 
-The data used in this demonstration is an extract provided by the client for a single constraint. Any geographical labels or names have been removed to maintain confidentiality. Only the knitted html is available at the request of the client.
+The data used in this demonstration is an extract of historical provided by the client for a single constraint. Any geographical labels or names have been removed to maintain confidentiality. Only the knitted html is available at the request of the client.
 
 #### What is a constraint? What is constraint flow? Why is this important?
 
 In the context of a utilities company, constraints refer to limitations in the power grid, impacting its efficiency and reliability. These constraints can arise from transmission line capacity, generation limitations, network topology, and regulatory or market restrictions. When combined with the term "constraint flow," it refers to the flow of electricity through a constrained part of the power grid, which can be influenced by these factors. Power companies and grid operators work to mitigate these constraints, ensuring stable and cost-effective electricity delivery.
 
-Having a method to detect large changes in constraint flow can allow the utilities company to take proactive actions to maintain stability within the power grid instead of reacting when things begin to breakdown.
+Having a method to detect large changes in constraint flow can allow the utilities company to take proactive actions to maintain stability within the power grid instead of reacting when things begin to breakdown. If this change persists, then it is considered a regime change and the utilities company can work towards stabilizing the higher demand for power.
 
 #### Approach:
 
 1.  Import & clean the constraint data
 
-2.  Exploratory data analysis
+2.  Exploratory analysis
 
 3.  Create baseline with OnlineBcp package
 
@@ -90,7 +90,7 @@ Using the summary() function again we can see that those rows have been dropped.
 
 This is not necessary for this model, but it is important to track for our client. The dummy variable binding_hour was created to determine when this sequence of events happens. NA rows in shadow_price were also replaced with 0.
 
-Finally, all NA values have been removed and each row is in it's correct format.
+Finally, all NA values have been removed and each column is in the correct format.
 
 ```{r}
 
@@ -110,3 +110,18 @@ summary(df)
 
 head(df, n=10)
 ```
+
+# Exploring the Constraint Data
+
+Since this is all historical data, we will need to simulate how this would work in real time. First, we need to find a regime change in the past that we will try and detect. Lets look at a plot of the constraint time-series data with constraint_flow on the y-axis and DateTime on the x axis.
+
+In the graph below, the blue line is the constraint_flow variable and the orange line is rate_b. Remember, rate_b is the upper threshold of constraint_flow before problems arise.
+
+```{r}
+df %>%
+  ggplot() + geom_line(aes(x = DateTime, y = constraint_flow), color = 'blue') + geom_line(aes(x = DateTime, y = rate_b), color = 'orange') + labs(x = 'Date', y = 'Constraint Flow')
+```
+
+Right at the start of 2022, there appears to be a huge shift in constraint flow where it is riding right up to and beyond the rate_b limit. This is indicative of a regime change and is likely costing our client money to keep the grid stable.
+
+This is a good example of what this model is looking to detect, so this is the time period that will be simulated.
