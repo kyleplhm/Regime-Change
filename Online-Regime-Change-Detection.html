@@ -391,7 +391,8 @@ mitigate these constraints, ensuring stable and cost-effective
 electricity delivery.</p>
 <p>Having a method to detect large changes in constraint flow can allow
 the utilities company to take proactive actions to maintain stability
-within the power grid instead of reacting w</p>
+within the power grid instead of reacting when things begin to
+breakdown.</p>
 </div>
 <div id="approach" class="section level4">
 <h4>Approach:</h4>
@@ -407,6 +408,30 @@ change</p></li>
 </div>
 <div id="import-clean-the-constraint-data" class="section level1">
 <h1>Import &amp; Clean the Constraint Data</h1>
+<div id="data-dictionary" class="section level4">
+<h4>Data Dictionary:</h4>
+<ul>
+<li><p>DateTime: Date and time of observation. Each observation is one
+hour</p></li>
+<li><p>OpYear: Year observation occurs in</p></li>
+<li><p>OpMonth: Year + month observation occurs in</p></li>
+<li><p>constraint_flow: Flow of electricity within constraint in
+megawatt hours (MWh)</p></li>
+<li><p>rate_b: The intended upper limit on constraint flow at that given
+time</p></li>
+<li><p>constraint_flow_ratio: Ratio of constraint flow over rate_b
+(e.g., constraint_flow/rate_b)</p></li>
+<li><p>shadow_price: cost of intervening when the power constraint is
+near its limit. e.g., constraint_flow is approaching rate_b</p></li>
+</ul>
+</div>
+<div id="data-cleaning" class="section level4">
+<h4>Data Cleaning</h4>
+<p>Reading in the data and using the summary() function shows us that we
+have a consistent number of NA values across the rate_b,
+constraint_flow, and constraint_flow_ratio. This is due to those rows
+being recorded only once per day despite having rows for every hour of
+the day.</p>
 <pre class="r"><code>df  &lt;- read_csv(here(&#39;Data&#39;,&#39;constraint.csv&#39;), guess_max = 100000)
 
 summary(df)</code></pre>
@@ -426,21 +451,95 @@ summary(df)</code></pre>
 ##  3rd Qu.: 140.51   3rd Qu.:243.0   3rd Qu.: 0.59        
 ##  Max.   : 279.53   Max.   :302.0   Max.   : 1.10        
 ##  NA&#39;s   :39661     NA&#39;s   :39661   NA&#39;s   :39661</code></pre>
-<pre class="r"><code>head(df, n = 10)</code></pre>
-<pre><code>## # A tibble: 10 × 7
-##    DateTime      OpYear OpMonth  shadow_price constraint_flow rate_b
-##    &lt;chr&gt;          &lt;dbl&gt; &lt;chr&gt;           &lt;dbl&gt;           &lt;dbl&gt;  &lt;dbl&gt;
-##  1 7/1/2017 0:00   2017 7/1/2017           NA              NA     NA
-##  2 7/1/2017 1:00   2017 7/1/2017           NA              NA     NA
-##  3 7/1/2017 2:00   2017 7/1/2017           NA              NA     NA
-##  4 7/1/2017 3:00   2017 7/1/2017           NA              NA     NA
-##  5 7/1/2017 4:00   2017 7/1/2017           NA              NA     NA
-##  6 7/1/2017 5:00   2017 7/1/2017           NA              NA     NA
-##  7 7/1/2017 6:00   2017 7/1/2017           NA              NA     NA
-##  8 7/1/2017 7:00   2017 7/1/2017           NA              NA     NA
-##  9 7/1/2017 8:00   2017 7/1/2017           NA              NA     NA
-## 10 7/1/2017 9:00   2017 7/1/2017           NA              NA     NA
-## # ℹ 1 more variable: constraint_flow_ratio &lt;dbl&gt;</code></pre>
+<p>We can safely remove those rows by filtering where constraint_flow is
+not NA.</p>
+<p>DateTime is also converted from a string to a DateTime format</p>
+<pre class="r"><code>df = df %&gt;%
+    filter(
+      !(is.na(constraint_flow))
+    ) 
+
+df$DateTime = as.POSIXct(df$DateTime, format=&quot;%m/%d/%Y %H:%M&quot;)
+
+summary(df)</code></pre>
+<pre><code>##     DateTime                          OpYear       OpMonth         
+##  Min.   :2017-07-01 17:00:00.00   Min.   :2017   Length:7838       
+##  1st Qu.:2018-11-20 06:30:00.00   1st Qu.:2018   Class :character  
+##  Median :2020-03-24 08:00:00.00   Median :2020   Mode  :character  
+##  Mean   :2020-03-25 01:19:41.77   Mean   :2020                     
+##  3rd Qu.:2021-07-28 21:30:00.00   3rd Qu.:2021                     
+##  Max.   :2022-11-30 23:00:00.00   Max.   :2022                     
+##                                                                    
+##   shadow_price     constraint_flow       rate_b      constraint_flow_ratio
+##  Min.   :   0.07   Min.   :-118.53   Min.   :223.0   Min.   :-0.5001      
+##  1st Qu.:  25.00   1st Qu.:  40.91   1st Qu.:223.0   1st Qu.: 0.1722      
+##  Median :  59.72   Median :  97.41   Median :243.0   Median : 0.4068      
+##  Mean   :  99.86   Mean   :  92.48   Mean   :239.3   Mean   : 0.3847      
+##  3rd Qu.: 132.88   3rd Qu.: 140.51   3rd Qu.:243.0   3rd Qu.: 0.5928      
+##  Max.   :1055.21   Max.   : 279.53   Max.   :302.0   Max.   : 1.1047      
+##  NA&#39;s   :5911</code></pre>
+<p>Using the summary() function again we can see that those rows have
+been dropped. However, there are still many NA values under
+shadow_price. This is due to shadow price only being recorded when
+constraint_flow is near its capacity (rate_b), requiring manual
+intervention. When this happens, it is referred to as a
+‘binding_hour’.</p>
+<p>This is not necessary for this model, but it is important to track
+for our client. The dummy variable binding_hour was created to determine
+when this sequence of events happens. NA rows in shadow_price were also
+replaced with 0.</p>
+<p>Finally, all NA values have been removed and each row is in it’s
+correct format.</p>
+<pre class="r"><code>df = df %&gt;%
+    mutate(
+      binding_hour = factor(case_when(
+        is.na(shadow_price) ~ 0,
+        TRUE ~ 1
+      )),
+      shadow_price = case_when(
+        is.na(shadow_price) ~ 0,
+        TRUE ~ shadow_price
+      )
+    )
+
+summary(df)</code></pre>
+<pre><code>##     DateTime                          OpYear       OpMonth         
+##  Min.   :2017-07-01 17:00:00.00   Min.   :2017   Length:7838       
+##  1st Qu.:2018-11-20 06:30:00.00   1st Qu.:2018   Class :character  
+##  Median :2020-03-24 08:00:00.00   Median :2020   Mode  :character  
+##  Mean   :2020-03-25 01:19:41.77   Mean   :2020                     
+##  3rd Qu.:2021-07-28 21:30:00.00   3rd Qu.:2021                     
+##  Max.   :2022-11-30 23:00:00.00   Max.   :2022                     
+##   shadow_price     constraint_flow       rate_b      constraint_flow_ratio
+##  Min.   :   0.00   Min.   :-118.53   Min.   :223.0   Min.   :-0.5001      
+##  1st Qu.:   0.00   1st Qu.:  40.91   1st Qu.:223.0   1st Qu.: 0.1722      
+##  Median :   0.00   Median :  97.41   Median :243.0   Median : 0.4068      
+##  Mean   :  24.55   Mean   :  92.48   Mean   :239.3   Mean   : 0.3847      
+##  3rd Qu.:   0.00   3rd Qu.: 140.51   3rd Qu.:243.0   3rd Qu.: 0.5928      
+##  Max.   :1055.21   Max.   : 279.53   Max.   :302.0   Max.   : 1.1047      
+##  binding_hour
+##  0:5911      
+##  1:1927      
+##              
+##              
+##              
+## </code></pre>
+<pre class="r"><code>head(df, n=10)</code></pre>
+<pre><code>## # A tibble: 10 × 8
+##    DateTime            OpYear OpMonth  shadow_price constraint_flow rate_b
+##    &lt;dttm&gt;               &lt;dbl&gt; &lt;chr&gt;           &lt;dbl&gt;           &lt;dbl&gt;  &lt;dbl&gt;
+##  1 2017-07-01 17:00:00   2017 7/1/2017            0           14.4     223
+##  2 2017-07-02 17:00:00   2017 7/1/2017            0          100.      223
+##  3 2017-07-03 17:00:00   2017 7/1/2017            0            7.52    223
+##  4 2017-07-04 17:00:00   2017 7/1/2017            0          -76.6     223
+##  5 2017-07-05 17:00:00   2017 7/1/2017            0          -73.1     223
+##  6 2017-07-06 17:00:00   2017 7/1/2017            0          -73.7     223
+##  7 2017-07-07 17:00:00   2017 7/1/2017            0           24.5     223
+##  8 2017-07-08 17:00:00   2017 7/1/2017            0           13.4     223
+##  9 2017-07-09 17:00:00   2017 7/1/2017            0           18.7     223
+## 10 2017-07-10 17:00:00   2017 7/1/2017            0           53.9     223
+## # ℹ 2 more variables: constraint_flow_ratio &lt;dbl&gt;, binding_hour &lt;fct&gt;</code></pre>
+</div>
 </div>
 
 

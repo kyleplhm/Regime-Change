@@ -30,7 +30,7 @@ The data used in this demonstration is an extract provided by the client for a s
 
 In the context of a utilities company, constraints refer to limitations in the power grid, impacting its efficiency and reliability. These constraints can arise from transmission line capacity, generation limitations, network topology, and regulatory or market restrictions. When combined with the term "constraint flow," it refers to the flow of electricity through a constrained part of the power grid, which can be influenced by these factors. Power companies and grid operators work to mitigate these constraints, ensuring stable and cost-effective electricity delivery.
 
-Having a method to detect large changes in constraint flow can allow the utilities company to take proactive actions to maintain stability within the power grid instead of reacting w
+Having a method to detect large changes in constraint flow can allow the utilities company to take proactive actions to maintain stability within the power grid instead of reacting when things begin to breakdown.
 
 #### Approach:
 
@@ -46,10 +46,67 @@ Having a method to detect large changes in constraint flow can allow the utiliti
 
 # Import & Clean the Constraint Data
 
+#### Data Dictionary:
+
+-   DateTime: Date and time of observation. Each observation is one hour
+
+-   OpYear: Year observation occurs in
+
+-   OpMonth: Year + month observation occurs in
+
+-   constraint_flow: Flow of electricity within constraint in megawatt hours (MWh)
+
+-   rate_b: The intended upper limit on constraint flow at that given time
+
+-   constraint_flow_ratio: Ratio of constraint flow over rate_b (e.g., constraint_flow/rate_b)
+
+-   shadow_price: cost of intervening when the power constraint is near its limit. e.g., constraint_flow is approaching rate_b
+
+#### Data Cleaning
+
+Reading in the data and using the summary() function shows us that we have a consistent number of NA values across the rate_b, constraint_flow, and constraint_flow_ratio. This is due to those rows being recorded only once per day despite having rows for every hour of the day.
+
 ```{r}
 df  <- read_csv(here('Data','constraint.csv'), guess_max = 100000)
 
 summary(df)
 
-head(df, n = 10)
+```
+
+We can safely remove those rows by filtering where constraint_flow is not NA. DateTime is also converted from a string to a DateTime format.
+
+```{r}
+df = df %>%
+    filter(
+      !(is.na(constraint_flow))
+    ) 
+
+df$DateTime = as.POSIXct(df$DateTime, format="%m/%d/%Y %H:%M")
+
+summary(df)
+```
+
+Using the summary() function again we can see that those rows have been dropped. However, there are still many NA values under shadow_price. This is due to shadow price only being recorded when constraint_flow is near its capacity (rate_b), requiring manual intervention. When this happens, it is referred to as a 'binding_hour'.
+
+This is not necessary for this model, but it is important to track for our client. The dummy variable binding_hour was created to determine when this sequence of events happens. NA rows in shadow_price were also replaced with 0.
+
+Finally, all NA values have been removed and each row is in it's correct format.
+
+```{r}
+
+df = df %>%
+    mutate(
+      binding_hour = factor(case_when(
+        is.na(shadow_price) ~ 0,
+        TRUE ~ 1
+      )),
+      shadow_price = case_when(
+        is.na(shadow_price) ~ 0,
+        TRUE ~ shadow_price
+      )
+    )
+
+summary(df)
+
+head(df, n=10)
 ```
