@@ -357,13 +357,26 @@ display: none;
 </div>
 
 
+<pre class="r"><code>library(tidyverse)
+library(here)
+library(ggplot2)
+library(onlineBcp)
+library(lubridate)
+library(plotly)</code></pre>
 <div id="introduction" class="section level1">
 <h1>Introduction</h1>
-<p>This analysis is my contribution to a larger MSBA captstone project
-in support of a large North American Utilities company. Our group was
-tasked with detecting significant changes in constraint flow beyond
-normal seasonality also known as regime changes. The model used here is
-one of multiple used to detect these changes.</p>
+<p>This analysis is my contribution to a larger Cal Poly MSBA captstone
+project in support of a large North American Utilities company. Our
+group was tasked with detecting significant changes in constraint flow
+beyond normal seasonality also known as <strong>regime changes.</strong>
+This model leverages an R package that uses Bayesian probabilities to
+detect changes in time-series data in real-time( a.k.a “online”). These
+changes will also allow the data to be binned within the appropriate
+regime.</p>
+<p>The data used in this demonstration is an extract provided by the
+client for a single constraint. Any geographical labels or names have
+been removed to maintain confidentiality. Only the knitted html is
+available at the request of the client.</p>
 <div id="what-is-a-constraint-what-is-constraint-flow-why-is-this-important" class="section level4">
 <h4>What is a constraint? What is constraint flow? Why is this
 important?</h4>
@@ -378,8 +391,56 @@ mitigate these constraints, ensuring stable and cost-effective
 electricity delivery.</p>
 <p>Having a method to detect large changes in constraint flow can allow
 the utilities company to take proactive actions to maintain stability
-within the power grid</p>
+within the power grid instead of reacting w</p>
 </div>
+<div id="approach" class="section level4">
+<h4>Approach:</h4>
+<ol style="list-style-type: decimal">
+<li><p>Import &amp; clean the constraint data</p></li>
+<li><p>Exploratory data analysis</p></li>
+<li><p>Create baseline with OnlineBcp package</p></li>
+<li><p>Perform post-processing on OnlineBcp output to determine regime
+change</p></li>
+<li><p>Visualize results and suggest appropriate actions</p></li>
+</ol>
+</div>
+</div>
+<div id="import-clean-the-constraint-data" class="section level1">
+<h1>Import &amp; Clean the Constraint Data</h1>
+<pre class="r"><code>df  &lt;- read_csv(here(&#39;Data&#39;,&#39;constraint.csv&#39;), guess_max = 100000)
+
+summary(df)</code></pre>
+<pre><code>##    DateTime             OpYear       OpMonth           shadow_price    
+##  Length:47499       Min.   :2017   Length:47499       Min.   :   0.03  
+##  Class :character   1st Qu.:2018   Class :character   1st Qu.:  25.09  
+##  Mode  :character   Median :2020   Mode  :character   Median :  60.97  
+##                     Mean   :2020                      Mean   : 101.27  
+##                     3rd Qu.:2021                      3rd Qu.: 136.44  
+##                     Max.   :2022                      Max.   :1091.31  
+##                                                       NA&#39;s   :36171    
+##  constraint_flow       rate_b      constraint_flow_ratio
+##  Min.   :-118.53   Min.   :223.0   Min.   :-0.50        
+##  1st Qu.:  40.91   1st Qu.:223.0   1st Qu.: 0.17        
+##  Median :  97.41   Median :243.0   Median : 0.41        
+##  Mean   :  92.48   Mean   :239.3   Mean   : 0.38        
+##  3rd Qu.: 140.51   3rd Qu.:243.0   3rd Qu.: 0.59        
+##  Max.   : 279.53   Max.   :302.0   Max.   : 1.10        
+##  NA&#39;s   :39661     NA&#39;s   :39661   NA&#39;s   :39661</code></pre>
+<pre class="r"><code>head(df, n = 10)</code></pre>
+<pre><code>## # A tibble: 10 × 7
+##    DateTime      OpYear OpMonth  shadow_price constraint_flow rate_b
+##    &lt;chr&gt;          &lt;dbl&gt; &lt;chr&gt;           &lt;dbl&gt;           &lt;dbl&gt;  &lt;dbl&gt;
+##  1 7/1/2017 0:00   2017 7/1/2017           NA              NA     NA
+##  2 7/1/2017 1:00   2017 7/1/2017           NA              NA     NA
+##  3 7/1/2017 2:00   2017 7/1/2017           NA              NA     NA
+##  4 7/1/2017 3:00   2017 7/1/2017           NA              NA     NA
+##  5 7/1/2017 4:00   2017 7/1/2017           NA              NA     NA
+##  6 7/1/2017 5:00   2017 7/1/2017           NA              NA     NA
+##  7 7/1/2017 6:00   2017 7/1/2017           NA              NA     NA
+##  8 7/1/2017 7:00   2017 7/1/2017           NA              NA     NA
+##  9 7/1/2017 8:00   2017 7/1/2017           NA              NA     NA
+## 10 7/1/2017 9:00   2017 7/1/2017           NA              NA     NA
+## # ℹ 1 more variable: constraint_flow_ratio &lt;dbl&gt;</code></pre>
 </div>
 
 

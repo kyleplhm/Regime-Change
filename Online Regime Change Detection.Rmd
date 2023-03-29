@@ -8,7 +8,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 ```
 
 ```{r}
@@ -16,17 +16,40 @@ library(tidyverse)
 library(here)
 library(ggplot2)
 library(onlineBcp)
-library(changepoint)
 library(lubridate)
 library(plotly)
 ```
 
 # Introduction
 
-This analysis is my contribution to a larger MSBA captstone project in support of a large North American Utilities company. Our group was tasked with detecting significant changes in constraint flow beyond normal seasonality also known as regime changes. The model used here is one of multiple used to detect these changes.
+This analysis is my contribution to a larger Cal Poly MSBA captstone project in support of a large North American Utilities company. Our group was tasked with detecting significant changes in constraint flow beyond normal seasonality also known as **regime changes.** This model leverages an R package that uses Bayesian probabilities to detect changes in time-series data in real-time( a.k.a "online"). These changes will also allow the data to be binned within the appropriate regime.
+
+The data used in this demonstration is an extract provided by the client for a single constraint. Any geographical labels or names have been removed to maintain confidentiality. Only the knitted html is available at the request of the client.
 
 #### What is a constraint? What is constraint flow? Why is this important?
 
 In the context of a utilities company, constraints refer to limitations in the power grid, impacting its efficiency and reliability. These constraints can arise from transmission line capacity, generation limitations, network topology, and regulatory or market restrictions. When combined with the term "constraint flow," it refers to the flow of electricity through a constrained part of the power grid, which can be influenced by these factors. Power companies and grid operators work to mitigate these constraints, ensuring stable and cost-effective electricity delivery.
 
-Having a method to detect large changes in constraint flow can allow the utilities company to take proactive actions to maintain stability within the power grid
+Having a method to detect large changes in constraint flow can allow the utilities company to take proactive actions to maintain stability within the power grid instead of reacting w
+
+#### Approach:
+
+1.  Import & clean the constraint data
+
+2.  Exploratory data analysis
+
+3.  Create baseline with OnlineBcp package
+
+4.  Perform post-processing on OnlineBcp output to determine regime change
+
+5.  Visualize results and suggest appropriate actions
+
+# Import & Clean the Constraint Data
+
+```{r}
+df  <- read_csv(here('Data','constraint.csv'), guess_max = 100000)
+
+summary(df)
+
+head(df, n = 10)
+```
