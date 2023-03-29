@@ -5,6 +5,7 @@ date: "2023-03-29"
 output: 
   html_document: 
     theme: cerulean
+    df_print: kable
 ---
 
 ```{r setup, include=FALSE}
@@ -18,6 +19,7 @@ library(ggplot2)
 library(onlineBcp)
 library(lubridate)
 library(plotly)
+library(gt)
 ```
 
 # Introduction
@@ -124,4 +126,49 @@ df %>%
 
 Right at the start of 2022, there appears to be a huge shift in constraint flow where it is riding right up to and beyond the rate_b limit. This is indicative of a regime change and is likely costing our client money to keep the grid stable.
 
-This is a good example of what this model is looking to detect, so this is the time period that will be simulated.
+This is a good example of what this model is looking to detect, so this is the time period that will be simulated. We don't need all of the data prior to the expected change so we will progress with only data from 2021 and beyond
+
+```{r}
+df = df %>%
+  filter(
+    DateTime >= '2021-01-01'
+  )
+```
+
+# Online Change Point Detection
+
+```{r}
+ocp <- online_cp(df$constraint_flow, th_cp = 0.98)
+
+ocp_summary <- summary(ocp)
+
+plot(ocp_summary)
+```
+
+```{r}
+ table <- as.data.frame(ocp_summary$result[[2]])
+ 
+ table <- table %>%
+    mutate(
+      Months = (as.numeric(as.duration(df$DateTime[table$end] - df$DateTime[table$begin]) / ddays(1)))/30.44,
+      CohenD = (abs(lag(mean) - mean)) / sqrt((SD^2 + lag(SD)^2)/2)
+    )
+ 
+table
+```
+
+```{r}
+table2 <- table %>%
+  mutate(
+      LargeChange = case_when(
+        CohenD >= 2 ~ TRUE,
+        TRUE ~ FALSE
+      ),
+      Start_Date = df$DateTime[table$begin],
+      End_Date = df$DateTime[table$end]
+    ) %>%
+  filter(
+    LargeChange 
+  )
+table2
+```
