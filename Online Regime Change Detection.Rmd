@@ -231,7 +231,7 @@ table2 <- table %>%
     LargeChange 
   )
 
- # Assign regime change points
+# Assign regime change points
 cpts <- table2$begin
         
 # Create intervals for regimes  using change points
