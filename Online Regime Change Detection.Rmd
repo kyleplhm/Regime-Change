@@ -126,16 +126,19 @@ df %>%
 
 Right at the start of 2022, there appears to be a huge shift in constraint flow where it is riding right up to and beyond the rate_b limit. This is indicative of a regime change and is likely costing our client money to keep the grid stable.
 
-This is a good example of what this model is looking to detect, so this is the time period that will be simulated. We don't need all of the data prior to the expected change so we will progress with only data from 2021 and beyond
+This is a good example of what this model is looking to detect, so this is the time period that will be simulated. We don't need all of the data prior to the expected change so we will progress with only data from 2021 and beyond.
 
 ```{r}
 df = df %>%
   filter(
     DateTime >= '2021-01-01'
   )
+
+df %>%
+  ggplot() + geom_line(aes(x = DateTime, y = constraint_flow), color = 'blue') + geom_line(aes(x = DateTime, y = rate_b), color = 'orange') + labs(x = 'Date', y = 'Constraint Flow')
 ```
 
-# Online Change Point Detection
+# Bayesian Online Change Point Detection
 
 ```{r}
 ocp <- online_cp(df$constraint_flow, th_cp = 0.98)
@@ -150,7 +153,7 @@ plot(ocp_summary)
  
  table <- table %>%
     mutate(
-      Months = (as.numeric(as.duration(df$DateTime[table$end] - df$DateTime[table$begin]) / ddays(1)))/30.44,
+      Months = (as.numeric(as.duration(df$DateTime[table$end] -  df$DateTime[table$begin]) / ddays(1)))/30.44,
       CohenD = (abs(lag(mean) - mean)) / sqrt((SD^2 + lag(SD)^2)/2)
     )
  
@@ -171,4 +174,93 @@ table2 <- table %>%
     LargeChange 
   )
 table2
+```
+
+```{r}
+ # Assign regime change points
+cpts <- table2$begin
+        
+# Create intervals for regimes  using change points
+intervals <- c(0, cpts, Inf)
+        
+# Create labels for intervals
+regime_labels <- seq(from = 1, to = (length(intervals)-1), by = 1)
+      
+      
+# Bin original data based on intervals  
+bins <- cut(x = 1:length(df[['constraint_flow']]), breaks = intervals, 
+                labels= regime_labels, 
+                include.lowest = TRUE, right = FALSE  )
+      
+# Concat bins to original data
+df$Regime <- bins
+```
+
+```{r}
+df %>%
+  ggplot() + geom_line(aes(x = DateTime, y = constraint_flow, color = Regime)) + geom_line(aes(x = DateTime, y = rate_b), color = 'orange') + labs(x = 'Date', y = 'Constraint Flow')
+```
+
+# Simulating A Real World Use Case
+
+```{r, echo=FALSE}
+online_constraint_flow <- function(df){
+  
+ocp <- online_cp(df$constraint_flow, th_cp = 0.98)
+
+ocp_summary <- summary(ocp)
+
+table <- as.data.frame(ocp_summary$result[[2]])
+ 
+table <- table %>%
+    mutate(
+      Months = (as.numeric(as.duration(df$DateTime[table$end] -  df$DateTime[table$begin]) / ddays(1)))/30.44,
+      CohenD = (abs(lag(mean) - mean)) / sqrt((SD^2 + lag(SD)^2)/2)
+    )
+
+table2 <- table %>%
+  mutate(
+      LargeChange = case_when(
+        CohenD >= 2 ~ TRUE,
+        TRUE ~ FALSE
+      ),
+      Start_Date = df$DateTime[table$begin],
+      End_Date = df$DateTime[table$end]
+    ) %>%
+  filter(
+    LargeChange 
+  )
+
+ # Assign regime change points
+cpts <- table2$begin
+        
+# Create intervals for regimes  using change points
+intervals <- c(0, cpts, Inf)
+        
+# Create labels for intervals
+regime_labels <- seq(from = 1, to = (length(intervals)-1), by = 1)
+      
+      
+# Bin original data based on intervals  
+bins <- cut(x = 1:length(df[['constraint_flow']]), breaks = intervals, 
+                labels= regime_labels, 
+                include.lowest = TRUE, right = FALSE  )
+      
+# Concat bins to original data
+df$Regime <- bins
+
+plot = df %>%
+  ggplot() + geom_line(aes(x = DateTime, y = constraint_flow, color = Regime)) + geom_line(aes(x = DateTime, y = rate_b), color = 'orange') + labs(x = 'Date', y = 'Constraint Flow')
+
+summary_table <- df %>% 
+  group_by(Regime) %>%
+  summarise("Regime Start" = min(DateTime), "Regime End" = max(DateTime), "Mean Constraint Flow" = mean(constraint_flow), "Standard Deviation" = sd(constraint_flow))
+      
+  return(list(plot = plot, summary = summary_table))
+      
+}
+```
+
+```{r}
+online_constraint_flow(df)
 ```
