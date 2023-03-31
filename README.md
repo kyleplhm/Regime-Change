@@ -1,5 +1,6 @@
 # Regime-Change
-Introduction
+
+Use this link to view the R Markdown html: https://kyleplhm.github.io/Regime-Change/Online-Regime-Change-Detection.html
 
 This analysis is my contribution to a larger Cal Poly MSBA capstone project in support of a large North American Utilities company. Our group was tasked with detecting significant changes in constraint flow beyond normal seasonality also known as regime changes. This model leverages an R package called onlineBcp that uses Bayesian probabilities to detect changes in time-series data in real-time( a.k.a "online").
 
