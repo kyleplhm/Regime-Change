@@ -1,0 +1,331 @@
+---
+title: "Online Regime Change Detection"
+author: "Kyle Pelham, kyleplhm@gmail.com"
+date: "2023-03-29"
+output:
+  html_document:
+    theme: cerulean
+    df_print: kable
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(here)
+library(ggplot2)
+library(onlineBcp)
+library(lubridate)
+library(plotly)
+```
+
+# Introduction
+
+This analysis is an anonymized recreation of my contribution to a larger Cal Poly MSBA capstone project in support of a large North American utilities company. Our group was tasked with detecting significant changes in constraint flow beyond normal seasonality also known as regime changes. This model leverages an R package called onlineBcp that uses Bayesian probabilities to detect changes in time-series data in real-time( a.k.a "online").
+
+The data used in this demonstration is a synthetic recreation of time-series energy data for a single constraint.
+
+**What is a constraint? What is constraint flow? Why is this important?**
+
+In the context of a utilities company, constraints refer to limitations in the power grid, impacting its efficiency and reliability. These constraints can arise from transmission line capacity, generation limitations, network topology, and regulatory or market restrictions. When combined with the term "constraint flow," it refers to the flow of electricity through a constrained part of the power grid, which can be influenced by these factors. Power companies and grid operators work to mitigate these constraints, ensuring stable and cost-effective electricity delivery.
+
+Having a method to detect large, prolonged changes in constraint flow can allow the utilities company to take proactive actions to maintain stability within the power grid instead of reacting when things begin to breakdown, ultimately saving money in the long run.
+
+# Import & Clean the Constraint Data
+
+#### Data Dictionary:
+
+-   datetime: Date and time of observation
+
+-   year: Year observation occurs in
+
+-   month: Year + month observation occurs in
+
+-   constraint_flow: Flow of electricity within constraint in megawatt hours (MWh)
+
+-   upper_limit The intended upper limit on constraint flow at that given time
+
+#### Data Cleaning
+
+Reading in the data and using the summary() function shows us that the 'datetime' column is a character class. This will need to be converted into the proper date-time format to run properly.
+
+```{r}
+df  <- read_csv(here('Data','constraint.csv'), guess_max = 100000)
+
+summary(df)
+
+```
+
+The 'datetime' is now p[properly formatted.
+
+```{r}
+
+df$datetime = as.POSIXct(df$datetime, format="%m/%d/%Y %H:%M")
+
+summary(df)
+```
+
+# Exploring Constraint Data
+
+#### Plotting the Whole Data-set
+
+Since this is all historical data, we will need to simulate how this would work in real time. First, we need to find a regime change in the past that we will try and detect. Lets look at a plot of the constraint time-series data with constraint_flow on the y-axis and datetime on the x axis.
+
+In the graph below, the blue line is the constraint_flow variable and the orange line is upper_limit. Remember, upper_limit is the upper threshold of constraint_flow before problems arise.
+
+```{r}
+df %>%
+  ggplot() + geom_line(aes(x = datetime, y = constraint_flow), color = 'blue') + geom_line(aes(x = datetime, y = upper_limit), color = 'orange') + labs(x = 'Date', y = 'Constraint Flow')
+```
+
+Right at the start of 2021, there appears to be a huge shift in constraint flow where it is riding right up to and beyond the upper_limit. This is indicative of a regime change and is likely costing the energy company money to keep the grid stable.
+
+This is a good example of what this model is looking to detect, so this is the time period that will be simulated. We don't need all of the data prior to the expected change so we will progress with only data from 2021 and beyond.
+
+# Bayesian Online Change Point Detection Workflow
+
+The onlineBcp package is using Bayesian probabilities to determine if an observation is a change based on previous observations. In other words, you can think of this function processing the time-series data from left to right only. It is not using future data to determine change points like some other methods may use. This is what allows this method to detect changes in real-time.
+
+#### Running the Model
+
+For this section, the whole time-series data set will be passed in to showcase how it is working under the hood. In the real world, new data would be appended periodically and the function would be ran after each append to looking for new changes.
+
+The constraint_flow variable is passed into the online_cp function and the th_cp parameter is set to 0.98. Th_cp is the upper threshold of probability for the data point to be classified as a change point. In other words, only the points that have a greater than or equal to 98% chance of being a change point are classified. This allows the model to highlight only very large changes that are indicative of regime change.
+
+```{r, results='hide'}
+# Run online_cp function on df with threshold set to 0.98
+ocp <- online_cp(df$constraint_flow, th_cp = 0.98)
+# Assigning results to ocp_summary
+ocp_summary <- summary(ocp)
+```
+
+Plotting the output of the function shows us where each change point is occurring and draws a line through the mean of each resulting segment.
+
+```{r}
+# Show onlineBcp plot
+plot(ocp_summary, ylab = 'Constraint Flow')
+```
+
+The output also provides a table of summary statistics for each segment, including the rows where they start and end. Running post-processing on this table is what allows us to determine where the especially large changes are occurring.
+
+```{r}
+# Show results table
+ocp_summary$result[[2]]
+```
+
+#### Post-processing
+
+To compare the segments, Cohen's D is calculated for each segment. The higher the D value, the more different they are to the previous segment.
+
+```{r}
+# Calculating Cohen's D and time in Months for each segment
+table <- as.data.frame(ocp_summary$result[[2]])
+ 
+table <- table %>%
+    mutate(
+      Months = (as.numeric(as.duration(df$datetime[table$end] -  df$datetime[table$begin]) / ddays(1)))/30.44,
+      CohenD = (abs(lag(mean) - mean)) / sqrt((SD^2 + lag(SD)^2)/2)
+    )
+ 
+table
+```
+
+To find changes indicative of regime change, we are looking for changes that are greater than or equal to a D value of 2. If it meets that requirement, a new variable titled 'LargeChange' will be assigned to TRUE. By filtering the rows to where 'LargeChange' is TRUE, we now get a table with the most significant changes and the row index they start on.
+
+```{r}
+
+# Filtering out large changes, CohenD >= 2
+table2 <- table %>%
+  mutate(
+      LargeChange = case_when(
+        CohenD >= 2 ~ TRUE,
+        TRUE ~ FALSE
+      ),
+      Start_Date = df$datetime[table$begin],
+      End_Date = df$datetime[table$end]
+    ) %>%
+  filter(
+    LargeChange 
+  )
+table2
+```
+
+Using the 'begin' column, the data can be cut and binned between each change point to form individual regimes.
+
+```{r}
+ # Assign regime change points
+cpts <- table2$begin
+        
+# Create intervals for regimes  using change points
+intervals <- c(0, cpts, Inf)
+        
+# Create labels for intervals
+regime_labels <- seq(from = 1, to = (length(intervals)-1), by = 1)
+      
+      
+# Bin original data based on intervals  
+bins <- cut(x = 1:length(df[['constraint_flow']]), breaks = intervals, 
+                labels= regime_labels, 
+                include.lowest = TRUE, right = FALSE  )
+      
+# Concat bins to original data
+df$Regime <- bins
+```
+
+#### Final Results
+
+Plotting the data set and assigning color based on regime shows us the final result.
+
+```{r}
+df %>%
+  ggplot() + geom_line(aes(x = datetime, y = constraint_flow, color = Regime)) + geom_line(aes(x = datetime, y = upper_limit), color = 'orange') + labs(x = 'Date', y = 'Constraint Flow')
+```
+
+With the data binned, summary statistics can be calculated for each regime.
+
+```{r}
+df %>% 
+  group_by(Regime) %>%
+  summarise("Regime Start" = min(datetime), "Regime End" = max(datetime), "Mean Constraint Flow" = mean(constraint_flow), "Standard Deviation" = sd(constraint_flow))
+```
+
+The method was successful in identifying the regime change that was suspecting earlier in this analysis. However, it also picked up a third regime where constraint_flow is equal to 0. This is likely a measurement error and can be ignored.
+
+# Simulating A Real World Use Case
+
+To simulate how this can be deployed in the real world, a function was created that contains all the steps of the previous workflow. Starting with one year of data, one month will be added at a time right when the regime change happens, simulating the model picking up the change as it would have happened in the past.
+
+```{r}
+online_constraint_flow <- function(df){
+
+# Run online_cp function on df with threshold set to 0.98
+ocp <- online_cp(df$constraint_flow, th_cp = 0.98)
+
+# Assigning results to ocp_summary
+ocp_summary <- summary(ocp)
+
+# Converting results table to a dataframe
+table <- as.data.frame(ocp_summary$result[[2]])
+
+# Calculating Cohen's D and time in Months for each segment
+table <- table %>%
+    mutate(
+      Months = (as.numeric(as.duration(df$datetime[table$end] -  df$datetime[table$begin]) / ddays(1)))/30.44,
+      CohenD = (abs(lag(mean) - mean)) / sqrt((SD^2 + lag(SD)^2)/2)
+    )
+# Filtering out large changes, CohenD >= 2
+table2 <- table %>%
+  mutate(
+      LargeChange = case_when(
+        CohenD >= 2 ~ TRUE,
+        TRUE ~ FALSE
+      ),
+      Start_Date = df$datetime[table$begin],
+      End_Date = df$datetime[table$end]
+    ) %>%
+  filter(
+    LargeChange 
+  )
+
+# Assign regime change points
+cpts <- table2$begin
+        
+# Create intervals for regimes  using change points
+intervals <- c(0, cpts, Inf)
+        
+# Create labels for intervals
+regime_labels <- seq(from = 1, to = (length(intervals)-1), by = 1)
+      
+      
+# Bin original data based on intervals  
+bins <- cut(x = 1:length(df[['constraint_flow']]), breaks = intervals, 
+                labels= regime_labels, 
+                include.lowest = TRUE, right = FALSE  )
+      
+# Concat bins to original data
+df$Regime <- bins
+
+# Plot results
+plot = df %>%
+  ggplot() + geom_line(aes(x = datetime, y = constraint_flow, color = Regime)) + geom_line(aes(x = datetime, y = upper_limit), color = 'orange') + labs(x = 'Date', y = 'Constraint Flow')
+
+# Create summaty of regimes
+summary_table <- df %>% 
+  group_by(Regime) %>%
+  summarise("Regime Start" = min(datetime), "Regime End" = max(datetime), "Mean Constraint Flow" = mean(constraint_flow), "Standard Deviation" = sd(constraint_flow))
+   
+# Return list of outputs
+return(list(plot = plot, summary = summary_table))
+      
+}
+```
+
+#### Running the model from January 1, 2020 to December 31, 2020.
+
+Running the model on this period of data returns only one regime as expected since the change hasn't started happening.
+
+```{r}
+df2 = df %>%
+  filter(
+    datetime <= '2020-12-31'
+  )
+```
+
+```{r, results= 'hide'}
+result <- online_constraint_flow(df2)
+```
+
+```{r}
+result$plot
+
+result$summary
+```
+
+#### Running the model from January 1, 2020 to January 15, 2021
+
+The sudden jump is visible on the graph, but the duration of the change isn't long enough to be detected as a regime change.
+
+```{r}
+df2 = df %>%
+  filter(
+    datetime <= '2021-01-15'
+  )
+```
+
+```{r, results='hide'}
+result <- online_constraint_flow(df2)
+```
+
+```{r}
+result$plot
+
+result$summary
+```
+
+#### Running the model from January 1, 2020 to January 30, 2021
+
+Now with the entire month of January processed, the model has identified a regime change. The model will also slightly back track and flag the change where it actually started in January, allowing the utilities company to get a clear picture of when it occurred.
+
+```{r}
+df2 = df %>%
+  filter(
+    datetime <= '2021-01-30'
+  )
+```
+
+```{r, results='hide'}
+result <- online_constraint_flow(df2)
+```
+
+```{r}
+result$plot
+
+result$summary
+```
+
+# Conclusion
+
+To wrap it up, using this model every week for each constraint may help the utilities company keep an eye on regime changes and be ready to act. The cool thing is, as seen in the analysis, this model can also look at data from a long time ago and spot those regime changes that happened in the past. This makes it a really handy tool for the company to learn from past changes and figure out what might have caused them, helping them make better decisions and plan for the future.
